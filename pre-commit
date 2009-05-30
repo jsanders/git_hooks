@@ -1,0 +1,43 @@
+#!/usr/bin/ruby
+
+require 'fileutils'
+require 'set'
+
+begin
+  trailing_whitespace = Set.new
+
+  `git diff --check --cached 2> /dev/null`.each do | line |
+    if line =~ /^(.+):\d+: trailing whitespace\.$/
+      trailing_whitespace << $1
+    end
+  end
+
+  trailing_whitespace = trailing_whitespace.to_a
+
+  unless trailing_whitespace.empty?
+    trailing_whitespace.each do | filename |
+      `sed -i '.bak' -e 's/[[:space:]]*$//' #{filename} 2> /dev/null`
+      FileUtils.rm "#{filename}.bak"
+    end
+
+    puts `git diff --color #{trailing_whitespace.join(" ")} 2> /dev/null`
+
+    puts "Fixed whitespace issues in #{trailing_whitespace.length} files (diff above)"
+    print "Commit these changes? (y/N) "
+
+    # Nice little bit of magic - git doesn't pass stdin to this hook, so we have to grab tty ourselves
+    # http://kerneltrap.org/index.php?q=mailarchive/git/2008/3/4/1062624/thread
+    answer = open('/dev/tty').gets
+
+    if answer and answer.chomp.downcase == 'y'
+      `git add #{trailing_whitespace.join(" ")} 2> /dev/null`
+    else
+      `git checkout #{trailing_whitespace.join(" ")} 2> /dev/null`
+    end
+  end
+rescue => err
+  puts "Caught error: #{err}"
+ensure
+  # Make sure we don't cancel the commit
+  exit(0)
+end
